@@ -30,6 +30,7 @@ video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;t
   padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 14px) max(16px,env(safe-area-inset-left,0px));
   background:linear-gradient(transparent,var(--bg));font-family:var(--display);font-size:1.6rem;font-weight:800}
 #lives{color:var(--trap);letter-spacing:.1em}
+#live{font:600 .95rem var(--body);color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
 #flash{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:0 16px;font-family:var(--display);font-weight:800;font-size:clamp(2.2rem,10vw,5.5rem);line-height:1.05;pointer-events:none;opacity:0;transition:opacity .2s;text-shadow:0 4px 24px #000a}
 #flash.show{opacity:1}
 #menu{position:absolute;inset:0;display:grid;place-items:center;background:#14121fe6;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));overflow:auto}
@@ -50,7 +51,7 @@ button:disabled{opacity:.5}
   <canvas id="c"></canvas>
   <div id="top"><p id="cmd">Gør dig klar…</p><div id="timer"><i id="bar"></i></div><div id="active"></div></div>
   <div id="flash"></div>
-  <div id="bottom"><span id="score">0 point</span><span id="lives">♥♥♥</span></div>
+  <div id="bottom"><span id="score">0 point</span><span id="live"></span><span id="lives">♥♥♥</span></div>
   <div id="menu"><div>
     <h1 id="mtitle">Simon Siger</h1>
     <p>Stil telefonen op, og gå 2–3 meter tilbage, så hele kroppen er med. Gør kun det, der bliver sagt, når det starter med <b style="color:var(--simon)">Simon siger</b>.</p>
@@ -72,6 +73,17 @@ let pose,lm=null;
 /* ---------- Bevægelser ----------
    Landmarks: 0 næse, 11/12 skuldre, 15/16 håndled, 23/24 hofter, 25/26 knæ, 27/28 ankler */
 const vis=(...i)=>i.every(k=>lm[k]&&lm[k].visibility>0.5);
+const seen=(th,...i)=>i.every(k=>lm[k]&&lm[k].visibility>th);
+// Vinkel i knæet (hofte-knæ-ankel) i grader. Uafhængig af hvor langt væk man står.
+function kneeAngle(h,k,a){const v1=[lm[h].x-lm[k].x,lm[h].y-lm[k].y],v2=[lm[a].x-lm[k].x,lm[a].y-lm[k].y];
+  return Math.acos(Math.max(-1,Math.min(1,(v1[0]*v2[0]+v1[1]*v2[1])/(Math.hypot(...v1)*Math.hypot(...v2)||1))))*180/Math.PI;}
+function squatOk(){
+  if(seen(0.3,23,24,25,26,27,28))return (kneeAngle(23,25,27)+kneeAngle(24,26,28))/2<130;
+  // Fødderne er ikke med i billedet: hofterne skal være næsten nede i knæhøjde i forhold til lårlængden
+  if(!seen(0.3,11,12,23,24,25,26))return false;
+  const torso=Math.abs((lm[23].y+lm[24].y)/2-(lm[11].y+lm[12].y)/2)||0.2;
+  return ((lm[25].y-lm[23].y)+(lm[26].y-lm[24].y))/2<torso*0.45;
+}
 const up=w=>lm[w].y<lm[0].y;
 const MOVES=[
   {id:"up2", cat:"arm", t:"ræk begge hænder op", stop:"holde hænderne oppe", ok:()=>vis(0,15,16)&&up(15)&&up(16)},
@@ -82,7 +94,7 @@ const MOVES=[
      return Math.abs(lm[15].y-lm[11].y)<0.1&&Math.abs(lm[16].y-lm[12].y)<0.1&&Math.abs(lm[15].x-lm[16].x)>sw*2.5}},
   {id:"head",cat:"arm", t:"læg hænderne på hovedet", stop:"holde hænderne på hovedet", ok:()=>vis(0,15,16)&&[15,16].every(w=>Math.hypot(lm[w].x-lm[0].x,lm[w].y-lm[0].y)<0.18&&lm[w].y<lm[11].y)},
   {id:"clap",cat:"arm", act:true, t:"klap i hænderne", stop:"klappe"},
-  {id:"squat",cat:"leg",t:"gå ned i squat", stop:"sidde i squat", ok:()=>vis(23,24,25,26)&&((lm[25].y-lm[23].y)+(lm[26].y-lm[24].y))/2<0.09},
+  {id:"squat",cat:"leg",t:"gå ned i squat", stop:"sidde i squat", ok:squatOk},
   {id:"one", cat:"stance", t:"stå på ét ben", stop:"stå på ét ben", ok:()=>vis(27,28)&&Math.abs(lm[27].y-lm[28].y)>0.07},
   {id:"hop", cat:"hop", act:true, t:"hop", stop:"hoppe"},
 ];
@@ -91,26 +103,40 @@ const M=Object.fromEntries(MOVES.map(m=>[m.id,m]));
 const conflict=(a,b)=>a.cat===b.cat||(a.cat==="leg"&&b.cat!=="arm")||(b.cat==="leg"&&a.cat!=="arm");
 
 const lastOk={},counts={hop:0,clap:0};
-const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1300:600);
+const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1700:700);
 
-// Hop: hofterne løfter sig tydeligt over deres normale højde
-let hipBase=null,inAir=false;
+// Hop: begge fødder er over gulvet. "Gulvet" er den laveste fod de sidste 2 sekunder.
+// Squat -> stå op flytter ikke fødderne, så det tæller ikke som hop.
+let floorHist=[],hipHist=[],inAir=false;
 function detectHop(now){
-  if(!vis(11,12,23,24))return;
+  if(!seen(0.3,11,12,23,24))return;
   const hip=(lm[23].y+lm[24].y)/2,torso=Math.abs(hip-(lm[11].y+lm[12].y)/2)||0.2;
-  if(hipBase===null)hipBase=hip;
-  if(!inAir&&hip<hipBase-torso*0.12){inAir=true;counts.hop++;lastOk.hop=now;}
-  else if(inAir&&hip>hipBase-torso*0.05)inAir=false;
-  if(!inAir&&Math.abs(hip-hipBase)<torso*0.1)hipBase=hipBase*0.93+hip*0.07;
-  else if(!inAir)hipBase=hipBase*0.99+hip*0.01;
+  const feet=seen(0.25,27,28);
+  let rise;
+  if(feet){
+    const low=Math.max(lm[27].y,lm[28].y);         // den laveste fod (størst y)
+    floorHist.push([now,low]);floorHist=floorHist.filter(p=>now-p[0]<2000);
+    const floor=Math.max(...floorHist.map(p=>p[1]));
+    rise=floor-low;
+  }else{
+    // Fødderne er ude af billedet: brug hofterne i stedet
+    hipHist.push([now,hip]);hipHist=hipHist.filter(p=>now-p[0]<1500);
+    rise=Math.max(...hipHist.map(p=>p[1]))-hip;
+  }
+  if(!inAir&&rise>torso*0.07){inAir=true;counts.hop++;lastOk.hop=now;}
+  else if(inAir&&rise<torso*0.03)inAir=false;
 }
-// Klap: håndleddene mødes efter at have været fra hinanden
-let handsApart=true;
+// Klap: hænderne mødes efter at have været fra hinanden.
+// Bruger både håndled og fingerspidser, fordi hænderne ofte bliver slørede, når de mødes.
+let handsApart=true,handsHidden=0;
 function detectClap(now){
-  if(!vis(11,12,15,16))return;
-  const sw=Math.abs(lm[11].x-lm[12].x)||0.15,d=Math.hypot(lm[15].x-lm[16].x,lm[15].y-lm[16].y);
-  if(handsApart&&d<sw*0.45){handsApart=false;counts.clap++;lastOk.clap=now;}
-  else if(!handsApart&&d>sw*0.9)handsApart=true;
+  if(!seen(0.3,11,12))return;
+  const sw=Math.abs(lm[11].x-lm[12].x)||0.15;
+  const pts=[[15,16],[19,20],[17,18]].filter(([a,b])=>seen(0.15,a,b));
+  if(!pts.length)return;
+  const d=Math.min(...pts.map(([a,b])=>Math.hypot(lm[a].x-lm[b].x,lm[a].y-lm[b].y)));
+  if(handsApart&&d<sw*0.6){handsApart=false;counts.clap++;lastOk.clap=now;}
+  else if(!handsApart&&d>sw*0.8)handsApart=true;
 }
 
 /* ---------- Lyd og tale ---------- */
@@ -139,7 +165,7 @@ const sfx={good:()=>{beep(660,.15);beep(990,.25,.4,"sine",.15);},bad:()=>beep(22
 async function init(){
   try{
     const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-    const opts=d=>({baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",delegate:d},runningMode:"VIDEO",numPoses:1});
+    const opts=d=>({baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",delegate:d},runningMode:"VIDEO",numPoses:1});
     // iPhone/Safari: GPU virker ikke altid, så vi falder tilbage til CPU
     try{pose=await PoseLandmarker.createFromOptions(fs,opts("GPU"));}catch{pose=await PoseLandmarker.createFromOptions(fs,opts("CPU"));}
     $("normal").disabled=$("hard").disabled=false;$("msg").textContent="";
@@ -263,6 +289,8 @@ function loop(now){
       for(const m of MOVES)if(m.ok&&m.ok())lastOk[m.id]=now;
       detectHop(now);detectClap(now);
     }
+    // Lille live-visning, så man kan se hvad kameraet fanger
+    $("live").textContent=lm?`Hop ${counts.hop} · Klap ${counts.clap} · Squat ${doing("squat")?"✓":"–"}`:"Kan ikke se dig";
     const dt=now-(last||now);
     if(state==="play")mode==="hard"?frameHard(now,dt):frameNormal(now,dt);
   }
