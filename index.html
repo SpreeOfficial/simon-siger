@@ -37,6 +37,10 @@ video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;t
 #menu>div{max-width:30rem;text-align:center;display:grid;gap:14px}
 #menu h1{font-family:var(--display);font-size:clamp(2.6rem,11vw,4.5rem);margin:0;line-height:1;color:var(--simon)}
 #menu p{margin:0;color:var(--muted);line-height:1.5}
+#mistakes{margin:0;padding:14px 18px 14px 40px;text-align:left;background:#ff5d731f;border:2px solid var(--trap);border-radius:16px;display:grid;gap:8px;line-height:1.35}
+#mistakes::before{content:"Det gik galt her:";font:800 1.2rem var(--display);color:var(--trap);margin-left:-22px}
+#mistakes b{color:var(--fg)}
+#mistakes span{color:var(--muted);display:block;font-size:.9rem}
 .modes{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
 button{font:800 1.4rem var(--display);background:var(--simon);color:#231a00;border:0;border-radius:999px;padding:12px 30px;cursor:pointer}
 button.hard{background:var(--trap);color:#2a0008}
@@ -59,6 +63,7 @@ button:disabled{opacity:.5}
       <button id="normal" disabled>Normal<small>Én ting ad gangen</small></button>
       <button id="hard" class="hard" disabled>Svær<small>Bliv ved, til Simon siger stop</small></button>
     </div>
+    <ol id="mistakes" hidden></ol>
     <p id="msg">Indlæser…</p>
   </div></div>
 </div>
@@ -185,7 +190,7 @@ async function begin(m){
       await v.play();
     }
   }catch(e){$("msg").textContent="Kameraet blev ikke tilladt. Siden skal åbnes via https, og du skal give adgang til kameraet.";return;}
-  mode=m;score=0;lives=3;round=step=null;active.clear();upd();$("menu").hidden=true;state="play";
+  mode=m;score=0;lives=3;round=step=null;active.clear();mistakes=[];$("mistakes").hidden=true;upd();$("menu").hidden=true;state="play";
   if(!looping){looping=true;requestAnimationFrame(loop);}
   setTimeout(next,m==="hard"?4500:2500);
 }
@@ -263,15 +268,31 @@ function frameHard(now,dt){
 
 /* ---------- Fælles ---------- */
 function next(){if(state!=="play")return;mode==="hard"?nextHard():nextNormal();}
+let mistakes=[];
+function logMistake(txt){
+  const r=mode==="hard"?step:round;
+  const cmd=(r.simon?"Simon siger: ":"")+(mode==="hard"&&r.kind==="stop"?"stop med at "+r.m.stop:r.m.t);
+  const also=mode==="hard"&&active.size?"Du var i gang med: "+[...active].map(id=>M[id].t).join(" + "):"";
+  mistakes.push({cmd:cap(cmd),why:txt,also});
+}
+function showMistakes(){
+  const ol=$("mistakes");ol.textContent="";
+  for(const m of mistakes){
+    const li=document.createElement("li"),b=document.createElement("b"),s=document.createElement("span");
+    b.textContent="“"+m.cmd+"”";s.textContent=m.why+(m.also?" "+m.also+".":"");
+    li.append(b,s);ol.appendChild(li);
+  }
+  ol.hidden=!mistakes.length;
+}
 function end(success,txt){
   (mode==="hard"?step:round).done=true;
   if(success){score++;flash(txt,"var(--ok)");sfx.good();}
-  else{lives--;flash(txt,"var(--trap)");sfx.bad();if(mode==="hard")active.clear();}
+  else{lives--;flash(txt,"var(--trap)");sfx.bad();logMistake(txt);if(mode==="hard")active.clear();}
   upd();
   if(lives<=0){
     state="menu";
     setTimeout(()=>speak("Spillet er slut. Du fik "+score+" point."),400);
-    setTimeout(()=>{$("menu").hidden=false;$("mtitle").textContent=score+" point!";$("cmd").textContent="Spillet er slut";},1200);
+    setTimeout(()=>{$("menu").hidden=false;$("mtitle").textContent=score+" point!";showMistakes();$("cmd").textContent="Spillet er slut";},1200);
     return;
   }
   if(!success)setTimeout(()=>speak(txt+(mode==="hard"?" Vi starter forfra.":"")),350);
