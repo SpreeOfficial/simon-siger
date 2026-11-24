@@ -89,6 +89,9 @@ async function init(){
 init();
 
 $("start").onclick=async()=>{
+  // iPhone kræver, at lyd og tale startes direkte i trykket, før noget andet ventes på
+  unlockAudio();
+  speak("Gør dig klar. Gå to meter tilbage.");
   try{
     if(!v.srcObject){
       v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480},audio:false});
@@ -101,7 +104,26 @@ $("start").onclick=async()=>{
 
 function upd(){$("score").textContent=score+" point";$("lives").textContent="♥".repeat(lives)+"♡".repeat(3-lives);}
 function flash(txt,col){const f=$("flash");f.textContent=txt;f.style.color=col;f.classList.add("show");setTimeout(()=>f.classList.remove("show"),900);}
-function speak(t){try{const u=new SpeechSynthesisUtterance(t);u.lang="da-DK";speechSynthesis.cancel();speechSynthesis.speak(u);}catch{}}
+let daVoice=null;
+function pickVoice(){try{const vs=speechSynthesis.getVoices();daVoice=vs.find(x=>x.lang&&x.lang.toLowerCase().startsWith("da"))||null;}catch{}}
+try{pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}catch{}
+function speak(t){try{
+  if(speechSynthesis.speaking)speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(t);u.lang="da-DK";if(daVoice)u.voice=daVoice;u.rate=1;u.volume=1;
+  speechSynthesis.speak(u);
+}catch{}}
+let ac=null;
+function unlockAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume();beep(0,0.01,0.001);}catch{}}
+function beep(freq,dur,vol=0.4,type="sine",at=0){if(!ac)return;try{
+  const o=ac.createOscillator(),g=ac.createGain(),t0=ac.currentTime+at;
+  o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(vol,t0);g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
+  o.connect(g).connect(ac.destination);o.start(t0);o.stop(t0+dur);
+}catch{}}
+const sfx={
+  good:()=>{beep(660,.15);beep(990,.25,.4,"sine",.15);},
+  bad:()=>{beep(220,.4,.5,"sawtooth");},
+  tick:()=>beep(880,.06,.2),
+};
 
 function next(){
   if(state!=="play")return;
@@ -116,11 +138,12 @@ function next(){
 
 function end(success,txt){
   round.done=true;
-  if(success){score++;flash(txt||"Godt!","var(--ok)");}
-  else{lives--;flash(txt||"Øv!","var(--trap)");}
+  if(success){score++;flash(txt||"Godt!","var(--ok)");sfx.good();}
+  else{lives--;flash(txt||"Øv!","var(--trap)");sfx.bad();}
   upd();
-  if(lives<=0){state="menu";setTimeout(()=>{$("menu").hidden=false;$("menu").querySelector("h1").textContent=score+" point!";$("start").textContent="Spil igen";$("cmd").textContent="Spillet er slut";},1000);return;}
-  setTimeout(next,1300);
+  if(lives>0&&!success)setTimeout(()=>speak(txt),350);
+  if(lives<=0){setTimeout(()=>speak("Spillet er slut. Du fik "+score+" point."),400);state="menu";setTimeout(()=>{$("menu").hidden=false;$("menu").querySelector("h1").textContent=score+" point!";$("start").textContent="Spil igen";$("cmd").textContent="Spillet er slut";},1000);return;}
+  setTimeout(next,success?1300:2300);
 }
 
 function loop(now){
