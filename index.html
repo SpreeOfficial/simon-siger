@@ -23,17 +23,23 @@ video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;t
 #cmd .s{color:var(--simon)}
 #timer{height:8px;border-radius:4px;background:#ffffff22;margin:10px auto 0;max-width:420px;overflow:hidden}
 #timer i{display:block;height:100%;width:0;background:var(--simon)}
+#active{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:10px}
+#active span{font:600 1rem var(--body);background:#ffc83d26;border:2px solid var(--simon);border-radius:999px;padding:4px 12px}
+#active span.off{border-color:var(--trap);background:#ff5d7326}
 #bottom{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:end;
   padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 14px) max(16px,env(safe-area-inset-left,0px));
   background:linear-gradient(transparent,var(--bg));font-family:var(--display);font-size:1.6rem;font-weight:800}
 #lives{color:var(--trap);letter-spacing:.1em}
-#flash{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:clamp(2.5rem,12vw,6rem);pointer-events:none;opacity:0;transition:opacity .2s;text-shadow:0 4px 24px #000a}
+#flash{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:0 16px;font-family:var(--display);font-weight:800;font-size:clamp(2.2rem,10vw,5.5rem);line-height:1.05;pointer-events:none;opacity:0;transition:opacity .2s;text-shadow:0 4px 24px #000a}
 #flash.show{opacity:1}
-#menu{position:absolute;inset:0;display:grid;place-items:center;background:#14121fe6;padding:24px max(16px,env(safe-area-inset-left,0px))}
+#menu{position:absolute;inset:0;display:grid;place-items:center;background:#14121fe6;padding:24px max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));overflow:auto}
 #menu>div{max-width:30rem;text-align:center;display:grid;gap:14px}
 #menu h1{font-family:var(--display);font-size:clamp(2.6rem,11vw,4.5rem);margin:0;line-height:1;color:var(--simon)}
 #menu p{margin:0;color:var(--muted);line-height:1.5}
-button{font:800 1.4rem var(--display);background:var(--simon);color:#231a00;border:0;border-radius:999px;padding:14px 34px;cursor:pointer;justify-self:center}
+.modes{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+button{font:800 1.4rem var(--display);background:var(--simon);color:#231a00;border:0;border-radius:999px;padding:12px 30px;cursor:pointer}
+button.hard{background:var(--trap);color:#2a0008}
+button small{display:block;font:600 .8rem var(--body)}
 button:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
 button:disabled{opacity:.5}
 </style>
@@ -42,14 +48,17 @@ button:disabled{opacity:.5}
 <div id="stage">
   <video id="v" playsinline muted></video>
   <canvas id="c"></canvas>
-  <div id="top"><p id="cmd">Gør dig klar…</p><div id="timer"><i id="bar"></i></div></div>
+  <div id="top"><p id="cmd">Gør dig klar…</p><div id="timer"><i id="bar"></i></div><div id="active"></div></div>
   <div id="flash"></div>
   <div id="bottom"><span id="score">0 point</span><span id="lives">♥♥♥</span></div>
   <div id="menu"><div>
-    <h1>Simon Siger</h1>
-    <p>Stil telefonen op, gå 2–3 meter tilbage, så hele kroppen er med. Gør kun bevægelsen, når der står <b style="color:var(--simon)">Simon siger</b>. Ellers skal du stå stille!</p>
-    <button id="start" disabled>Indlæser…</button>
-    <p id="msg"></p>
+    <h1 id="mtitle">Simon Siger</h1>
+    <p>Stil telefonen op, og gå 2–3 meter tilbage, så hele kroppen er med. Gør kun det, der bliver sagt, når det starter med <b style="color:var(--simon)">Simon siger</b>.</p>
+    <div class="modes">
+      <button id="normal" disabled>Normal<small>Én ting ad gangen</small></button>
+      <button id="hard" class="hard" disabled>Svær<small>Bliv ved, til Simon siger stop</small></button>
+    </div>
+    <p id="msg">Indlæser…</p>
   </div></div>
 </div>
 
@@ -60,52 +69,52 @@ const $=id=>document.getElementById(id);
 const v=$("v"),c=$("c"),ctx=c.getContext("2d");
 let pose,lm=null;
 
-// Landmark-numre: 0 næse, 11/12 skuldre, 15/16 håndled, 23/24 hofter, 25/26 knæ, 27/28 ankler
+/* ---------- Bevægelser ----------
+   Landmarks: 0 næse, 11/12 skuldre, 15/16 håndled, 23/24 hofter, 25/26 knæ, 27/28 ankler */
 const vis=(...i)=>i.every(k=>lm[k]&&lm[k].visibility>0.5);
 const up=w=>lm[w].y<lm[0].y;
 const MOVES=[
-  {t:"ræk begge hænder op",ok:()=>vis(0,15,16)&&up(15)&&up(16)},
-  {t:"ræk højre hånd op",ok:()=>vis(0,15,16)&&up(16)&&!up(15)},
-  {t:"ræk venstre hånd op",ok:()=>vis(0,15,16)&&up(15)&&!up(16)},
-  {t:"stræk armene ud til siden",ok:()=>{if(!vis(11,12,15,16))return false;
+  {id:"up2", cat:"arm", t:"ræk begge hænder op", stop:"holde hænderne oppe", ok:()=>vis(0,15,16)&&up(15)&&up(16)},
+  {id:"upR", cat:"arm", t:"ræk højre hånd op", stop:"holde højre hånd oppe", ok:()=>vis(0,15,16)&&up(16)&&!up(15)},
+  {id:"upL", cat:"arm", t:"ræk venstre hånd op", stop:"holde venstre hånd oppe", ok:()=>vis(0,15,16)&&up(15)&&!up(16)},
+  {id:"tee", cat:"arm", t:"stræk armene ud til siden", stop:"holde armene ude", ok:()=>{if(!vis(11,12,15,16))return false;
      const sw=Math.abs(lm[11].x-lm[12].x);
      return Math.abs(lm[15].y-lm[11].y)<0.1&&Math.abs(lm[16].y-lm[12].y)<0.1&&Math.abs(lm[15].x-lm[16].x)>sw*2.5}},
-  {t:"læg hænderne på hovedet",ok:()=>vis(0,15,16)&&[15,16].every(w=>Math.hypot(lm[w].x-lm[0].x,lm[w].y-lm[0].y)<0.18&&lm[w].y<lm[11].y)},
-  {t:"gå ned i squat",ok:()=>vis(23,24,25,26)&&((lm[25].y-lm[23].y)+(lm[26].y-lm[24].y))/2<0.09},
-  {t:"stå på ét ben",ok:()=>vis(27,28)&&Math.abs(lm[27].y-lm[28].y)>0.07},
+  {id:"head",cat:"arm", t:"læg hænderne på hovedet", stop:"holde hænderne på hovedet", ok:()=>vis(0,15,16)&&[15,16].every(w=>Math.hypot(lm[w].x-lm[0].x,lm[w].y-lm[0].y)<0.18&&lm[w].y<lm[11].y)},
+  {id:"clap",cat:"arm", act:true, t:"klap i hænderne", stop:"klappe"},
+  {id:"squat",cat:"leg",t:"gå ned i squat", stop:"sidde i squat", ok:()=>vis(23,24,25,26)&&((lm[25].y-lm[23].y)+(lm[26].y-lm[24].y))/2<0.09},
+  {id:"one", cat:"stance", t:"stå på ét ben", stop:"stå på ét ben", ok:()=>vis(27,28)&&Math.abs(lm[27].y-lm[28].y)>0.07},
+  {id:"hop", cat:"hop", act:true, t:"hop", stop:"hoppe"},
 ];
+const M=Object.fromEntries(MOVES.map(m=>[m.id,m]));
+// To bevægelser kan ikke laves samtidig, hvis de bruger samme kropsdel (fx squat + hop)
+const conflict=(a,b)=>a.cat===b.cat||(a.cat==="leg"&&b.cat!=="arm")||(b.cat==="leg"&&a.cat!=="arm");
 
-let state="menu",score=0,lives=3,round=null,held=0,last=0;
+const lastOk={},counts={hop:0,clap:0};
+const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1300:600);
 
-async function init(){
-  try{
-    const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
-    const opts=d=>({baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",delegate:d},runningMode:"VIDEO",numPoses:1});
-    // iPhone/Safari: GPU virker ikke altid, så vi falder tilbage til CPU
-    try{pose=await PoseLandmarker.createFromOptions(fs,opts("GPU"));}catch{pose=await PoseLandmarker.createFromOptions(fs,opts("CPU"));}
-    $("start").disabled=false;$("start").textContent="Start spillet";
-  }catch(e){$("msg").textContent="Kunne ikke indlæse AI-modellen. Tjek internetforbindelsen.";}
+// Hop: hofterne løfter sig tydeligt over deres normale højde
+let hipBase=null,inAir=false;
+function detectHop(now){
+  if(!vis(11,12,23,24))return;
+  const hip=(lm[23].y+lm[24].y)/2,torso=Math.abs(hip-(lm[11].y+lm[12].y)/2)||0.2;
+  if(hipBase===null)hipBase=hip;
+  if(!inAir&&hip<hipBase-torso*0.12){inAir=true;counts.hop++;lastOk.hop=now;}
+  else if(inAir&&hip>hipBase-torso*0.05)inAir=false;
+  if(!inAir&&Math.abs(hip-hipBase)<torso*0.1)hipBase=hipBase*0.93+hip*0.07;
+  else if(!inAir)hipBase=hipBase*0.99+hip*0.01;
 }
-init();
+// Klap: håndleddene mødes efter at have været fra hinanden
+let handsApart=true;
+function detectClap(now){
+  if(!vis(11,12,15,16))return;
+  const sw=Math.abs(lm[11].x-lm[12].x)||0.15,d=Math.hypot(lm[15].x-lm[16].x,lm[15].y-lm[16].y);
+  if(handsApart&&d<sw*0.45){handsApart=false;counts.clap++;lastOk.clap=now;}
+  else if(!handsApart&&d>sw*0.9)handsApart=true;
+}
 
-$("start").onclick=async()=>{
-  // iPhone kræver, at lyd og tale startes direkte i trykket, før noget andet ventes på
-  unlockAudio();
-  speak("Gør dig klar. Gå to meter tilbage.");
-  try{
-    if(!v.srcObject){
-      v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480},audio:false});
-      await v.play();
-    }
-  }catch(e){$("msg").textContent="Kameraet blev ikke tilladt. Siden skal åbnes via https, og du skal give adgang til kameraet.";return;}
-  score=0;lives=3;upd();$("menu").hidden=true;state="play";
-  requestAnimationFrame(loop);setTimeout(next,1500);
-};
-
-function upd(){$("score").textContent=score+" point";$("lives").textContent="♥".repeat(lives)+"♡".repeat(3-lives);}
-function flash(txt,col){const f=$("flash");f.textContent=txt;f.style.color=col;f.classList.add("show");setTimeout(()=>f.classList.remove("show"),900);}
+/* ---------- Lyd og tale ---------- */
 let daVoice=null;
-// Vælg den mest naturlige danske stemme: Premium > Forbedret/Enhanced > standard
 function pickVoice(){try{
   const da=speechSynthesis.getVoices().filter(x=>x.lang&&x.lang.toLowerCase().startsWith("da"));
   const rank=x=>/premium/i.test(x.name+x.voiceURI)?3:/enhanced|forbedret/i.test(x.name+x.voiceURI)?2:x.localService?1:0;
@@ -118,54 +127,144 @@ function speak(t){try{
   speechSynthesis.speak(u);
 }catch{}}
 let ac=null;
-function unlockAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume();beep(0,0.01,0.001);}catch{}}
+function unlockAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume();beep(440,0.01,0.001);}catch{}}
 function beep(freq,dur,vol=0.4,type="sine",at=0){if(!ac)return;try{
   const o=ac.createOscillator(),g=ac.createGain(),t0=ac.currentTime+at;
   o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(vol,t0);g.gain.exponentialRampToValueAtTime(0.001,t0+dur);
   o.connect(g).connect(ac.destination);o.start(t0);o.stop(t0+dur);
 }catch{}}
-const sfx={
-  good:()=>{beep(660,.15);beep(990,.25,.4,"sine",.15);},
-  bad:()=>{beep(220,.4,.5,"sawtooth");},
-  tick:()=>beep(880,.06,.2),
-};
+const sfx={good:()=>{beep(660,.15);beep(990,.25,.4,"sine",.15);},bad:()=>beep(220,.4,.5,"sawtooth")};
 
-function next(){
-  if(state!=="play")return;
-  const m=MOVES[Math.floor(Math.random()*MOVES.length)];
-  const simon=Math.random()<0.7;
-  const dur=Math.max(2200,4000-score*120);
-  round={m,simon,start:performance.now(),dur,done:false};held=0;
-  $("cmd").innerHTML=(simon?'<span class="s">Simon siger:</span> ':'')+m.t[0].toUpperCase()+m.t.slice(1)+"!";
+/* ---------- Opstart ---------- */
+async function init(){
+  try{
+    const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const opts=d=>({baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",delegate:d},runningMode:"VIDEO",numPoses:1});
+    // iPhone/Safari: GPU virker ikke altid, så vi falder tilbage til CPU
+    try{pose=await PoseLandmarker.createFromOptions(fs,opts("GPU"));}catch{pose=await PoseLandmarker.createFromOptions(fs,opts("CPU"));}
+    $("normal").disabled=$("hard").disabled=false;$("msg").textContent="";
+  }catch(e){$("msg").textContent="Kunne ikke indlæse AI-modellen. Tjek internetforbindelsen.";}
+}
+init();
+
+let state="menu",mode="normal",score=0,lives=3,round=null,step=null,active=new Set(),vt=0,last=0,looping=false;
+
+async function begin(m){
+  // iPhone kræver, at lyd og tale startes direkte i trykket, før noget andet ventes på
+  unlockAudio();
+  speak(m==="hard"?"Svær. Bliv ved med bevægelsen, til Simon siger stop. Gå to meter tilbage.":"Gør dig klar. Gå to meter tilbage.");
+  try{
+    if(!v.srcObject){
+      v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480},audio:false});
+      await v.play();
+    }
+  }catch(e){$("msg").textContent="Kameraet blev ikke tilladt. Siden skal åbnes via https, og du skal give adgang til kameraet.";return;}
+  mode=m;score=0;lives=3;round=step=null;active.clear();upd();$("menu").hidden=true;state="play";
+  if(!looping){looping=true;requestAnimationFrame(loop);}
+  setTimeout(next,m==="hard"?4500:2500);
+}
+$("normal").onclick=()=>begin("normal");
+$("hard").onclick=()=>begin("hard");
+
+function upd(){$("score").textContent=score+" point";$("lives").textContent="♥".repeat(Math.max(0,lives))+"♡".repeat(3-Math.max(0,lives));renderActive();}
+function renderActive(){
+  const box=$("active");box.textContent="";
+  if(mode!=="hard")return;
+  for(const id of active){const s=document.createElement("span");s.textContent=M[id].t;if(state==="play"&&step&&performance.now()-step.t0>step.G&&!doing(id))s.className="off";box.appendChild(s);}
+}
+function flash(txt,col){const f=$("flash");f.textContent=txt;f.style.color=col;f.classList.add("show");setTimeout(()=>f.classList.remove("show"),1100);}
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+function say(simon,text){
+  $("cmd").innerHTML="";
+  if(simon){const s=document.createElement("span");s.className="s";s.textContent="Simon siger: ";$("cmd").appendChild(s);}
+  $("cmd").appendChild(document.createTextNode(cap(text)+"!"));
   $("bar").style.background=simon?"var(--simon)":"var(--trap)";
-  speak((simon?"Simon siger: ":"")+m.t);
+  speak((simon?"Simon siger: ":"")+text);
+}
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+
+/* ---------- Normal: én ting ad gangen ---------- */
+function nextNormal(){
+  const m=pick(MOVES),simon=Math.random()<0.7;
+  const dur=Math.max(2200,4000-score*120)+(m.act?1500:0);
+  round={m,simon,start:performance.now(),dur,done:false,c0:m.act?counts[m.id]:0};vt=0;
+  say(simon,m.act?m.t+" to gange":m.t);
+}
+function frameNormal(now,dt){
+  const r=round;if(!r||r.done)return;
+  const t=(now-r.start)/r.dur;$("bar").style.width=Math.min(100,t*100)+"%";
+  let did;
+  if(r.m.act)did=counts[r.m.id]-r.c0>=2;
+  else{vt=lm&&r.m.ok()?vt+dt:Math.max(0,vt-dt);did=vt>400;}
+  if(did)r.simon?end(true,"Godt!"):end(false,"Simon sagde det ikke!");
+  else if(t>=1)r.simon?end(false,"For langsom!"):end(true,"Godt holdt!");
 }
 
+/* ---------- Svær: bliv ved, til Simon siger stop ---------- */
+function nextHard(){
+  const now=performance.now();
+  const free=MOVES.filter(m=>!active.has(m.id)&&[...active].every(a=>!conflict(m,M[a])));
+  let kind;
+  if(active.size===0)kind="add";
+  else if(active.size<2&&free.length&&Math.random()<0.5)kind="add";
+  else kind="stop";
+  const simon=Math.random()<(active.size===0?0.8:0.72);
+  const m=kind==="add"?pick(free.length?free:MOVES.filter(x=>!active.has(x.id))):M[pick([...active])];
+  const G=Math.max(2500,4200-score*90);
+  step={kind,simon,m,t0:now,G,end:now+G+3200,done:false};vt=0;
+  if(simon){kind==="add"?active.add(m.id):active.delete(m.id);}
+  say(simon,kind==="add"?m.t:"stop med at "+m.stop);
+  renderActive();
+}
+function frameHard(now,dt){
+  const s=step;if(!s||s.done)return;
+  const t=now-s.t0;$("bar").style.width=Math.min(100,t/(s.end-s.t0)*100)+"%";
+  const forbidden=(s.kind==="add"&&!s.simon)||(s.kind==="stop"&&s.simon)?s.m.id:null;
+  if(t<s.G){
+    if(s.kind==="add"&&!s.simon&&doing(s.m.id))return end(false,"Simon sagde det ikke!");
+    return;
+  }
+  const missing=[...active].find(id=>!doing(id));
+  const bad=missing||(forbidden&&doing(forbidden));
+  vt=bad?vt+dt:0;
+  renderActive();
+  if(vt>800){
+    if(missing)return end(false,s.kind==="stop"&&!s.simon&&missing===s.m.id?"Simon sagde ikke stop!":"Du stoppede med at "+M[missing].stop+"!");
+    return end(false,s.simon?"Du skulle stoppe med at "+s.m.stop+"!":"Simon sagde det ikke!");
+  }
+  if(now>=s.end)end(true,pick(["Godt!","Flot!","Bliv ved!"]));
+}
+
+/* ---------- Fælles ---------- */
+function next(){if(state!=="play")return;mode==="hard"?nextHard():nextNormal();}
 function end(success,txt){
-  round.done=true;
-  if(success){score++;flash(txt||"Godt!","var(--ok)");sfx.good();}
-  else{lives--;flash(txt||"Øv!","var(--trap)");sfx.bad();}
+  (mode==="hard"?step:round).done=true;
+  if(success){score++;flash(txt,"var(--ok)");sfx.good();}
+  else{lives--;flash(txt,"var(--trap)");sfx.bad();if(mode==="hard")active.clear();}
   upd();
-  if(lives>0&&!success)setTimeout(()=>speak(txt),350);
-  if(lives<=0){setTimeout(()=>speak("Spillet er slut. Du fik "+score+" point."),400);state="menu";setTimeout(()=>{$("menu").hidden=false;$("menu").querySelector("h1").textContent=score+" point!";$("start").textContent="Spil igen";$("cmd").textContent="Spillet er slut";},1000);return;}
-  setTimeout(next,success?1300:2300);
+  if(lives<=0){
+    state="menu";
+    setTimeout(()=>speak("Spillet er slut. Du fik "+score+" point."),400);
+    setTimeout(()=>{$("menu").hidden=false;$("mtitle").textContent=score+" point!";$("cmd").textContent="Spillet er slut";},1200);
+    return;
+  }
+  if(!success)setTimeout(()=>speak(txt+(mode==="hard"?" Vi starter forfra.":"")),350);
+  setTimeout(next,success?(mode==="hard"?600:1300):(mode==="hard"?3200:2300));
 }
 
 function loop(now){
   if(v.readyState>=2&&pose){
     if(c.width!==v.videoWidth){c.width=v.videoWidth;c.height=v.videoHeight;}
     const r=pose.detectForVideo(v,now);
-    lm=r.landmarks?.[0]||null;
+    lm=r.landmarks&&r.landmarks[0]||null;
     ctx.clearRect(0,0,c.width,c.height);
-    if(lm){const d=new DrawingUtils(ctx);d.drawConnectors(lm,PoseLandmarker.POSE_CONNECTIONS,{color:"#ffc83d",lineWidth:4});d.drawLandmarks(lm,{color:"#f6f3ff",radius:3});}
-    if(state==="play"&&round&&!round.done){
-      const dt=now-(last||now),t=(now-round.start)/round.dur;
-      $("bar").style.width=Math.min(100,t*100)+"%";
-      const doing=lm&&round.m.ok();
-      held=doing?held+dt:Math.max(0,held-dt);
-      if(held>400){ round.simon?end(true,"Godt!"):end(false,"Simon sagde det ikke!"); }
-      else if(t>=1){ round.simon?end(false,"For langsom!"):end(true,"Godt holdt!"); }
+    if(lm){
+      const d=new DrawingUtils(ctx);d.drawConnectors(lm,PoseLandmarker.POSE_CONNECTIONS,{color:"#ffc83d",lineWidth:4});d.drawLandmarks(lm,{color:"#f6f3ff",radius:3});
+      for(const m of MOVES)if(m.ok&&m.ok())lastOk[m.id]=now;
+      detectHop(now);detectClap(now);
     }
+    const dt=now-(last||now);
+    if(state==="play")mode==="hard"?frameHard(now,dt):frameNormal(now,dt);
   }
   last=now;
   requestAnimationFrame(loop);
