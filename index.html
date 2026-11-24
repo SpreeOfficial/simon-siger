@@ -143,7 +143,9 @@ const MOVES=[
 ];
 const M=Object.fromEntries(MOVES.map(m=>[m.id,m]));
 // To bevægelser kan ikke laves samtidig, hvis de bruger samme kropsdel (fx squat + hop)
-const conflict=(a,b)=>a.cat===b.cat||(a.cat==="leg"&&b.cat!=="arm")||(b.cat==="leg"&&a.cat!=="arm");
+// Undtagelse: klap + begge arme over hovedet kan godt laves samtidig (klap over hovedet)
+const combo=(a,b)=>(a.id==="clap"&&b.id==="up2")||(a.id==="up2"&&b.id==="clap");
+const conflict=(a,b)=>!combo(a,b)&&(a.cat===b.cat||(a.cat==="leg"&&b.cat!=="arm")||(b.cat==="leg"&&a.cat!=="arm"));
 
 const lastOk={},counts={hop:0,clap:0};
 const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1700:700);
@@ -294,7 +296,9 @@ function nextHard(){
   let pool=free.length?free:MOVES.filter(x=>!active.has(x.id));
   // En fælde må aldrig være noget, man allerede er i gang med (fx lige efter en fejl), og ikke det sidst stoppede
   if(kind==="add"&&!simon){const fair=pool.filter(x=>!doing(x.id)&&x.id!==lastStopped);if(fair.length)pool=fair;else simon=true;}
-  const m=kind==="add"?pick(pool):M[pick([...active])];
+  // Giv kombinationen klap + arme over hovedet en god chance, når den ene allerede er i gang
+  const partner=active.size===1&&simon?pool.find(x=>combo(x,M[[...active][0]])):null;
+  const m=kind==="add"?(partner&&Math.random()<0.5?partner:pick(pool)):M[pick([...active])];
   lastStopped=kind==="stop"&&simon?m.id:null;
   const G=Math.max(2500,4200-score*90);
   step={kind,simon,m,t0:now,G,end:now+G+3200,done:false};vt=0;
