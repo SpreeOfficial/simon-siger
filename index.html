@@ -147,6 +147,11 @@ const conflict=(a,b)=>a.cat===b.cat||(a.cat==="leg"&&b.cat!=="arm")||(b.cat==="l
 
 const lastOk={},counts={hop:0,clap:0};
 const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1700:700);
+// "Tydeligt i gang": bruges kun når spilleren skal straffes for at gøre noget forbudt.
+// En stilling skal holdes i 0,8 sek. i træk, og hop/klap skal ske mindst 2 gange inden for 2 sek.
+// Så tæller et skævt hop-landing ikke som "stå på ét ben" eller "squat".
+const okSince={},evts={hop:[],clap:[]};
+const clearly=id=>{const now=performance.now();if(M[id].act)return evts[id].filter(t=>now-t<2000).length>=2;return doing(id)&&okSince[id]!=null&&now-okSince[id]>=800;};
 
 // Hop: begge fødder er over gulvet. "Gulvet" er den laveste fod de sidste 2 sekunder.
 // Squat -> stå op flytter ikke fødderne, så det tæller ikke som hop.
@@ -169,7 +174,7 @@ function detectHop(now){
     rise=Math.max(...hipHist.map(p=>p[1]))-hip;
   }
   // Små hop/skip tæller: kun ca. 3,5 % af overkroppens længde kræves
-  if(!inAir&&rise>torso*0.035){inAir=true;counts.hop++;lastOk.hop=now;}
+  if(!inAir&&rise>torso*0.035){inAir=true;counts.hop++;evts.hop.push(now);evts.hop=evts.hop.slice(-10);lastOk.hop=now;}
   else if(inAir&&rise<torso*0.015)inAir=false;
 }
 // Klap: hænderne mødes efter at have været fra hinanden.
@@ -181,7 +186,7 @@ function detectClap(now){
   const pts=[[15,16],[19,20],[17,18]].filter(([a,b])=>seen(0.15,a,b));
   if(!pts.length)return;
   const d=Math.min(...pts.map(([a,b])=>Math.hypot(lm[a].x-lm[b].x,lm[a].y-lm[b].y)));
-  if(handsApart&&d<sw*0.6){handsApart=false;counts.clap++;lastOk.clap=now;}
+  if(handsApart&&d<sw*0.6){handsApart=false;counts.clap++;evts.clap.push(now);evts.clap=evts.clap.slice(-10);lastOk.clap=now;}
   else if(!handsApart&&d>sw*0.8)handsApart=true;
 }
 
@@ -307,11 +312,11 @@ function frameHard(now,dt){
   const t=now-s.t0;$("bar").style.width=Math.min(100,t/(s.end-s.t0)*100)+"%";
   const forbidden=(s.kind==="add"&&!s.simon)||(s.kind==="stop"&&s.simon)?s.m.id:null;
   if(t<s.G){
-    if(t>REACT&&s.kind==="add"&&!s.simon&&doing(s.m.id))return end(false,L().notSimon);
+    if(t>REACT&&s.kind==="add"&&!s.simon&&clearly(s.m.id))return end(false,L().notSimon);
     return;
   }
   const missing=[...active].find(id=>!doing(id));
-  const bad=missing||(forbidden&&doing(forbidden));
+  const bad=missing||(forbidden&&clearly(forbidden));
   vt=bad?vt+dt:0;
   renderActive();
   if(vt>800){
@@ -362,7 +367,7 @@ function loop(now){
     ctx.clearRect(0,0,c.width,c.height);
     if(lm){
       const d=new DrawingUtils(ctx);d.drawConnectors(lm,PoseLandmarker.POSE_CONNECTIONS,{color:"#ffc83d",lineWidth:4});d.drawLandmarks(lm,{color:"#f6f3ff",radius:3});
-      for(const m of MOVES)if(m.ok&&m.ok())lastOk[m.id]=now;
+      for(const m of MOVES)if(m.ok){if(m.ok()){if(okSince[m.id]==null)okSince[m.id]=now;lastOk[m.id]=now;}else if(now-(lastOk[m.id]||0)>150)okSince[m.id]=null;}
       detectHop(now);detectClap(now);
     }
     // Lille live-visning, så man kan se hvad kameraet fanger
