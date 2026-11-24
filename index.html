@@ -150,14 +150,16 @@ const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1700:700);
 
 // Hop: begge fødder er over gulvet. "Gulvet" er den laveste fod de sidste 2 sekunder.
 // Squat -> stå op flytter ikke fødderne, så det tæller ikke som hop.
-let floorHist=[],hipHist=[],inAir=false;
+let floorHist=[],hipHist=[],inAir=false,lowS=null;
 function detectHop(now){
   if(!seen(0.3,11,12,23,24))return;
   const hip=(lm[23].y+lm[24].y)/2,torso=Math.abs(hip-(lm[11].y+lm[12].y)/2)||0.2;
   const feet=seen(0.25,27,28);
   let rise;
   if(feet){
-    const low=Math.max(lm[27].y,lm[28].y);         // den laveste fod (størst y)
+    const raw=Math.max(lm[27].y,lm[28].y);          // den laveste fod (størst y)
+    lowS=lowS===null?raw:lowS*0.4+raw*0.6;          // let udglatning mod kamerastøj
+    const low=lowS;
     floorHist.push([now,low]);floorHist=floorHist.filter(p=>now-p[0]<2000);
     const floor=Math.max(...floorHist.map(p=>p[1]));
     rise=floor-low;
@@ -166,8 +168,9 @@ function detectHop(now){
     hipHist.push([now,hip]);hipHist=hipHist.filter(p=>now-p[0]<1500);
     rise=Math.max(...hipHist.map(p=>p[1]))-hip;
   }
-  if(!inAir&&rise>torso*0.07){inAir=true;counts.hop++;lastOk.hop=now;}
-  else if(inAir&&rise<torso*0.03)inAir=false;
+  // Små hop/skip tæller: kun ca. 3,5 % af overkroppens længde kræves
+  if(!inAir&&rise>torso*0.035){inAir=true;counts.hop++;lastOk.hop=now;}
+  else if(inAir&&rise<torso*0.015)inAir=false;
 }
 // Klap: hænderne mødes efter at have været fra hinanden.
 // Bruger både håndled og fingerspidser, fordi hænderne ofte bliver slørede, når de mødes.
