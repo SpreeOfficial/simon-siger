@@ -215,15 +215,21 @@ function say(simon,text){
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 
 /* ---------- Normal: én ting ad gangen ---------- */
+// Reaktionstid: de første 0,8 sek. af en runde tæller ikke, så man når at slippe den forrige bevægelse
+const REACT=800;
+let prevId=null;
 function nextNormal(){
-  const m=pick(MOVES),simon=Math.random()<0.7;
-  const dur=Math.max(2200,4000-score*120)+(m.act?1500:0);
-  round={m,simon,start:performance.now(),dur,done:false,c0:m.act?counts[m.id]:0};vt=0;
+  // Aldrig samme bevægelse to gange i træk: ellers "arver" runden den stilling, man allerede står i
+  const m=pick(MOVES.filter(x=>x.id!==prevId)),simon=Math.random()<0.7;prevId=m.id;
+  const dur=Math.max(2200,4000-score*120)+(m.act?1500:0)+REACT;
+  round={m,simon,start:performance.now(),dur,done:false,c0:null};vt=0;
   say(simon,m.act?m.t+" to gange":m.t);
 }
 function frameNormal(now,dt){
   const r=round;if(!r||r.done)return;
   const t=(now-r.start)/r.dur;$("bar").style.width=Math.min(100,t*100)+"%";
+  if(now-r.start<REACT)return;
+  if(r.c0===null)r.c0=r.m.act?counts[r.m.id]:0;
   let did;
   if(r.m.act)did=counts[r.m.id]-r.c0>=2;
   else{vt=lm&&r.m.ok()?vt+dt:Math.max(0,vt-dt);did=vt>400;}
@@ -232,6 +238,7 @@ function frameNormal(now,dt){
 }
 
 /* ---------- Svær: bliv ved, til Simon siger stop ---------- */
+let lastStopped=null;
 function nextHard(){
   const now=performance.now();
   const free=MOVES.filter(m=>!active.has(m.id)&&[...active].every(a=>!conflict(m,M[a])));
@@ -239,8 +246,12 @@ function nextHard(){
   if(active.size===0)kind="add";
   else if(active.size<2&&free.length&&Math.random()<0.5)kind="add";
   else kind="stop";
-  const simon=Math.random()<(active.size===0?0.8:0.72);
-  const m=kind==="add"?pick(free.length?free:MOVES.filter(x=>!active.has(x.id))):M[pick([...active])];
+  let simon=Math.random()<(active.size===0?0.8:0.72);
+  let pool=free.length?free:MOVES.filter(x=>!active.has(x.id));
+  // En fælde må aldrig være noget, man allerede er i gang med (fx lige efter en fejl), og ikke det sidst stoppede
+  if(kind==="add"&&!simon){const fair=pool.filter(x=>!doing(x.id)&&x.id!==lastStopped);if(fair.length)pool=fair;else simon=true;}
+  const m=kind==="add"?pick(pool):M[pick([...active])];
+  lastStopped=kind==="stop"&&simon?m.id:null;
   const G=Math.max(2500,4200-score*90);
   step={kind,simon,m,t0:now,G,end:now+G+3200,done:false};vt=0;
   if(simon){kind==="add"?active.add(m.id):active.delete(m.id);}
@@ -252,7 +263,7 @@ function frameHard(now,dt){
   const t=now-s.t0;$("bar").style.width=Math.min(100,t/(s.end-s.t0)*100)+"%";
   const forbidden=(s.kind==="add"&&!s.simon)||(s.kind==="stop"&&s.simon)?s.m.id:null;
   if(t<s.G){
-    if(s.kind==="add"&&!s.simon&&doing(s.m.id))return end(false,"Simon sagde det ikke!");
+    if(t>REACT&&s.kind==="add"&&!s.simon&&doing(s.m.id))return end(false,"Simon sagde det ikke!");
     return;
   }
   const missing=[...active].find(id=>!doing(id));
