@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Simon Siger</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Inter:wght@400;600&display=swap">
+<style>
+/* Layout: fullscreen spejlet kamera med kommando-banner øverst og score nederst */
+:root{
+  --bg:#14121f; --fg:#f6f3ff; --simon:#ffc83d; --trap:#ff5d73; --ok:#3ddc97; --muted:#a49fbf;
+  --display:"Baloo 2",system-ui,sans-serif; --body:Inter,system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);overflow:hidden}
+#stage{position:fixed;inset:0}
+video,canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#top{position:absolute;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top,0px) + 14px) max(16px,env(safe-area-inset-right,0px)) 14px max(16px,env(safe-area-inset-left,0px));
+  background:linear-gradient(var(--bg),transparent);text-align:center}
+#cmd{font-family:var(--display);font-weight:800;font-size:clamp(1.8rem,7vw,3.4rem);line-height:1.05;margin:0;text-wrap:balance}
+#cmd .s{color:var(--simon)}
+#timer{height:8px;border-radius:4px;background:#ffffff22;margin:10px auto 0;max-width:420px;overflow:hidden}
+#timer i{display:block;height:100%;width:0;background:var(--simon)}
+#bottom{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:end;
+  padding:14px max(16px,env(safe-area-inset-right,0px)) calc(env(safe-area-inset-bottom,0px) + 14px) max(16px,env(safe-area-inset-left,0px));
+  background:linear-gradient(transparent,var(--bg));font-family:var(--display);font-size:1.6rem;font-weight:800}
+#lives{color:var(--trap);letter-spacing:.1em}
+#flash{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:clamp(2.5rem,12vw,6rem);pointer-events:none;opacity:0;transition:opacity .2s;text-shadow:0 4px 24px #000a}
+#flash.show{opacity:1}
+#menu{position:absolute;inset:0;display:grid;place-items:center;background:#14121fe6;padding:24px max(16px,env(safe-area-inset-left,0px))}
+#menu>div{max-width:30rem;text-align:center;display:grid;gap:14px}
+#menu h1{font-family:var(--display);font-size:clamp(2.6rem,11vw,4.5rem);margin:0;line-height:1;color:var(--simon)}
+#menu p{margin:0;color:var(--muted);line-height:1.5}
+button{font:800 1.4rem var(--display);background:var(--simon);color:#231a00;border:0;border-radius:999px;padding:14px 34px;cursor:pointer;justify-self:center}
+button:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
+button:disabled{opacity:.5}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" playsinline muted></video>
+  <canvas id="c"></canvas>
+  <div id="top"><p id="cmd">Gør dig klar…</p><div id="timer"><i id="bar"></i></div></div>
+  <div id="flash"></div>
+  <div id="bottom"><span id="score">0 point</span><span id="lives">♥♥♥</span></div>
+  <div id="menu"><div>
+    <h1>Simon Siger</h1>
+    <p>Stil telefonen op, gå 2–3 meter tilbage, så hele kroppen er med. Gør kun bevægelsen, når der står <b style="color:var(--simon)">Simon siger</b>. Ellers skal du stå stille!</p>
+    <button id="start" disabled>Indlæser…</button>
+    <p id="msg"></p>
+  </div></div>
+</div>
+
+<script type="module">
+import {PoseLandmarker,FilesetResolver,DrawingUtils} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const $=id=>document.getElementById(id);
+const v=$("v"),c=$("c"),ctx=c.getContext("2d");
+let pose,lm=null;
+
+// Landmark-numre: 0 næse, 11/12 skuldre, 15/16 håndled, 23/24 hofter, 25/26 knæ, 27/28 ankler
+const vis=(...i)=>i.every(k=>lm[k]&&lm[k].visibility>0.5);
+const up=w=>lm[w].y<lm[0].y;
+const MOVES=[
+  {t:"ræk begge hænder op",ok:()=>vis(0,15,16)&&up(15)&&up(16)},
+  {t:"ræk højre hånd op",ok:()=>vis(0,15,16)&&up(16)&&!up(15)},
+  {t:"ræk venstre hånd op",ok:()=>vis(0,15,16)&&up(15)&&!up(16)},
+  {t:"stræk armene ud til siden",ok:()=>{if(!vis(11,12,15,16))return false;
+     const sw=Math.abs(lm[11].x-lm[12].x);
+     return Math.abs(lm[15].y-lm[11].y)<0.1&&Math.abs(lm[16].y-lm[12].y)<0.1&&Math.abs(lm[15].x-lm[16].x)>sw*2.5}},
+  {t:"læg hænderne på hovedet",ok:()=>vis(0,15,16)&&[15,16].every(w=>Math.hypot(lm[w].x-lm[0].x,lm[w].y-lm[0].y)<0.18&&lm[w].y<lm[11].y)},
+  {t:"gå ned i squat",ok:()=>vis(23,24,25,26)&&((lm[25].y-lm[23].y)+(lm[26].y-lm[24].y))/2<0.09},
+  {t:"stå på ét ben",ok:()=>vis(27,28)&&Math.abs(lm[27].y-lm[28].y)>0.07},
+];
+
+let state="menu",score=0,lives=3,round=null,held=0,last=0;
+
+async function init(){
+  try{
+    const fs=await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    const opts=d=>({baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",delegate:d},runningMode:"VIDEO",numPoses:1});
+    // iPhone/Safari: GPU virker ikke altid, så vi falder tilbage til CPU
+    try{pose=await PoseLandmarker.createFromOptions(fs,opts("GPU"));}catch{pose=await PoseLandmarker.createFromOptions(fs,opts("CPU"));}
+    $("start").disabled=false;$("start").textContent="Start spillet";
+  }catch(e){$("msg").textContent="Kunne ikke indlæse AI-modellen. Tjek internetforbindelsen.";}
+}
+init();
+
+$("start").onclick=async()=>{
+  try{
+    if(!v.srcObject){
+      v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:640,height:480},audio:false});
+      await v.play();
+    }
+  }catch(e){$("msg").textContent="Kameraet blev ikke tilladt. Siden skal åbnes via https, og du skal give adgang til kameraet.";return;}
+  score=0;lives=3;upd();$("menu").hidden=true;state="play";
+  requestAnimationFrame(loop);setTimeout(next,1500);
+};
+
+function upd(){$("score").textContent=score+" point";$("lives").textContent="♥".repeat(lives)+"♡".repeat(3-lives);}
+function flash(txt,col){const f=$("flash");f.textContent=txt;f.style.color=col;f.classList.add("show");setTimeout(()=>f.classList.remove("show"),900);}
+function speak(t){try{const u=new SpeechSynthesisUtterance(t);u.lang="da-DK";speechSynthesis.cancel();speechSynthesis.speak(u);}catch{}}
+
+function next(){
+  if(state!=="play")return;
+  const m=MOVES[Math.floor(Math.random()*MOVES.length)];
+  const simon=Math.random()<0.7;
+  const dur=Math.max(2200,4000-score*120);
+  round={m,simon,start:performance.now(),dur,done:false};held=0;
+  $("cmd").innerHTML=(simon?'<span class="s">Simon siger:</span> ':'')+m.t[0].toUpperCase()+m.t.slice(1)+"!";
+  $("bar").style.background=simon?"var(--simon)":"var(--trap)";
+  speak((simon?"Simon siger: ":"")+m.t);
+}
+
+function end(success,txt){
+  round.done=true;
+  if(success){score++;flash(txt||"Godt!","var(--ok)");}
+  else{lives--;flash(txt||"Øv!","var(--trap)");}
+  upd();
+  if(lives<=0){state="menu";setTimeout(()=>{$("menu").hidden=false;$("menu").querySelector("h1").textContent=score+" point!";$("start").textContent="Spil igen";$("cmd").textContent="Spillet er slut";},1000);return;}
+  setTimeout(next,1300);
+}
+
+function loop(now){
+  if(v.readyState>=2&&pose){
+    if(c.width!==v.videoWidth){c.width=v.videoWidth;c.height=v.videoHeight;}
+    const r=pose.detectForVideo(v,now);
+    lm=r.landmarks?.[0]||null;
+    ctx.clearRect(0,0,c.width,c.height);
+    if(lm){const d=new DrawingUtils(ctx);d.drawConnectors(lm,PoseLandmarker.POSE_CONNECTIONS,{color:"#ffc83d",lineWidth:4});d.drawLandmarks(lm,{color:"#f6f3ff",radius:3});}
+    if(state==="play"&&round&&!round.done){
+      const dt=now-(last||now),t=(now-round.start)/round.dur;
+      $("bar").style.width=Math.min(100,t*100)+"%";
+      const doing=lm&&round.m.ok();
+      held=doing?held+dt:Math.max(0,held-dt);
+      if(held>400){ round.simon?end(true,"Godt!"):end(false,"Simon sagde det ikke!"); }
+      else if(t>=1){ round.simon?end(false,"For langsom!"):end(true,"Godt holdt!"); }
+    }
+  }
+  last=now;
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
