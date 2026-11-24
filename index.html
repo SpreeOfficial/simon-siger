@@ -148,7 +148,7 @@ const combo=(a,b)=>(a.id==="clap"&&b.id==="up2")||(a.id==="up2"&&b.id==="clap");
 const conflict=(a,b)=>!combo(a,b)&&(a.cat===b.cat||(a.cat==="leg"&&b.cat!=="arm")||(b.cat==="leg"&&a.cat!=="arm"));
 
 const lastOk={},counts={hop:0,clap:0};
-const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1700:700);
+const doing=id=>performance.now()-(lastOk[id]||-1e9)<(id==="hop"?2200:M[id].act?1700:700);
 // "Tydeligt i gang": bruges kun når spilleren skal straffes for at gøre noget forbudt.
 // En stilling skal holdes i 0,8 sek. i træk, og hop/klap skal ske mindst 2 gange inden for 2 sek.
 // Så tæller et skævt hop-landing ikke som "stå på ét ben" eller "squat".
@@ -156,15 +156,15 @@ const okSince={},evts={hop:[],clap:[]};
 const clearly=id=>{const now=performance.now();if(M[id].act)return evts[id].filter(t=>now-t<2000).length>=2;return doing(id)&&okSince[id]!=null&&now-okSince[id]>=800;};
 
 // Hop: kroppen bevæger sig op og ned. Vi følger midten af overkroppen (skuldre + hofter)
-// og tæller ét hop, hver gang den vender fra "ned" til "op" med mindst ~3 % af overkroppens længde.
+// og tæller ét hop, hver gang den vender fra "ned" til "op" med mindst ~2 % af overkroppens længde.
 // Fødderne behøver ikke være med i billedet, og små hop/vip tæller også.
 let bodyS=null,goingUp=false,ext=null;
 function detectHop(now){
   if(!seen(0.3,11,12,23,24))return;
   const sh=(lm[11].y+lm[12].y)/2,hip=(lm[23].y+lm[24].y)/2,torso=Math.abs(hip-sh)||0.2;
   const y=(sh+hip)/2;
-  bodyS=bodyS===null?y:bodyS*0.35+y*0.65;          // let udglatning mod kamerastøj
-  const A=torso*0.03;
+  bodyS=bodyS===null?y:bodyS*0.25+y*0.75;          // let udglatning mod kamerastøj
+  const A=torso*0.018;
   if(ext===null){ext=bodyS;return;}
   if(goingUp){
     if(bodyS<ext)ext=bodyS;                         // nyt toppunkt (mindre y = højere oppe)
