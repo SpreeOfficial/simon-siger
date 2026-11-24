@@ -105,11 +105,16 @@ $("start").onclick=async()=>{
 function upd(){$("score").textContent=score+" point";$("lives").textContent="♥".repeat(lives)+"♡".repeat(3-lives);}
 function flash(txt,col){const f=$("flash");f.textContent=txt;f.style.color=col;f.classList.add("show");setTimeout(()=>f.classList.remove("show"),900);}
 let daVoice=null;
-function pickVoice(){try{const vs=speechSynthesis.getVoices();daVoice=vs.find(x=>x.lang&&x.lang.toLowerCase().startsWith("da"))||null;}catch{}}
+// Vælg den mest naturlige danske stemme: Premium > Forbedret/Enhanced > standard
+function pickVoice(){try{
+  const da=speechSynthesis.getVoices().filter(x=>x.lang&&x.lang.toLowerCase().startsWith("da"));
+  const rank=x=>/premium/i.test(x.name+x.voiceURI)?3:/enhanced|forbedret/i.test(x.name+x.voiceURI)?2:x.localService?1:0;
+  da.sort((a,b)=>rank(b)-rank(a));daVoice=da[0]||null;
+}catch{}}
 try{pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}catch{}
 function speak(t){try{
   if(speechSynthesis.speaking)speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(t);u.lang="da-DK";if(daVoice)u.voice=daVoice;u.rate=1;u.volume=1;
+  const u=new SpeechSynthesisUtterance(t);u.lang="da-DK";if(daVoice)u.voice=daVoice;u.rate=0.95;u.pitch=1.05;u.volume=1;
   speechSynthesis.speak(u);
 }catch{}}
 let ac=null;
