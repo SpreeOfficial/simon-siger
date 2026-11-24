@@ -153,29 +153,24 @@ const doing=id=>performance.now()-(lastOk[id]||-1e9)<(M[id].act?1700:700);
 const okSince={},evts={hop:[],clap:[]};
 const clearly=id=>{const now=performance.now();if(M[id].act)return evts[id].filter(t=>now-t<2000).length>=2;return doing(id)&&okSince[id]!=null&&now-okSince[id]>=800;};
 
-// Hop: begge fødder er over gulvet. "Gulvet" er den laveste fod de sidste 2 sekunder.
-// Squat -> stå op flytter ikke fødderne, så det tæller ikke som hop.
-let floorHist=[],hipHist=[],inAir=false,lowS=null;
+// Hop: kroppen bevæger sig op og ned. Vi følger midten af overkroppen (skuldre + hofter)
+// og tæller ét hop, hver gang den vender fra "ned" til "op" med mindst ~3 % af overkroppens længde.
+// Fødderne behøver ikke være med i billedet, og små hop/vip tæller også.
+let bodyS=null,goingUp=false,ext=null;
 function detectHop(now){
   if(!seen(0.3,11,12,23,24))return;
-  const hip=(lm[23].y+lm[24].y)/2,torso=Math.abs(hip-(lm[11].y+lm[12].y)/2)||0.2;
-  const feet=seen(0.25,27,28);
-  let rise;
-  if(feet){
-    const raw=Math.max(lm[27].y,lm[28].y);          // den laveste fod (størst y)
-    lowS=lowS===null?raw:lowS*0.4+raw*0.6;          // let udglatning mod kamerastøj
-    const low=lowS;
-    floorHist.push([now,low]);floorHist=floorHist.filter(p=>now-p[0]<2000);
-    const floor=Math.max(...floorHist.map(p=>p[1]));
-    rise=floor-low;
+  const sh=(lm[11].y+lm[12].y)/2,hip=(lm[23].y+lm[24].y)/2,torso=Math.abs(hip-sh)||0.2;
+  const y=(sh+hip)/2;
+  bodyS=bodyS===null?y:bodyS*0.35+y*0.65;          // let udglatning mod kamerastøj
+  const A=torso*0.03;
+  if(ext===null){ext=bodyS;return;}
+  if(goingUp){
+    if(bodyS<ext)ext=bodyS;                         // nyt toppunkt (mindre y = højere oppe)
+    else if(bodyS>ext+A){goingUp=false;ext=bodyS;}  // på vej ned igen
   }else{
-    // Fødderne er ude af billedet: brug hofterne i stedet
-    hipHist.push([now,hip]);hipHist=hipHist.filter(p=>now-p[0]<1500);
-    rise=Math.max(...hipHist.map(p=>p[1]))-hip;
+    if(bodyS>ext)ext=bodyS;                         // nyt bundpunkt
+    else if(bodyS<ext-A){goingUp=true;ext=bodyS;counts.hop++;evts.hop.push(now);evts.hop=evts.hop.slice(-10);lastOk.hop=now;}
   }
-  // Små hop/skip tæller: kun ca. 3,5 % af overkroppens længde kræves
-  if(!inAir&&rise>torso*0.035){inAir=true;counts.hop++;evts.hop.push(now);evts.hop=evts.hop.slice(-10);lastOk.hop=now;}
-  else if(inAir&&rise<torso*0.015)inAir=false;
 }
 // Klap: hænderne mødes efter at have været fra hinanden.
 // Bruger både håndled og fingerspidser, fordi hænderne ofte bliver slørede, når de mødes.
