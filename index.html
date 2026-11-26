@@ -86,7 +86,7 @@ const T={
    ready:"Gør dig klar. Gå to meter tilbage.",hardIntro:"Svær. Bliv ved med bevægelsen, til Simon siger stop. Gå to meter tilbage.",
    readyShort:"Gør dig klar…",twice:" to gange",stop:x=>"stop med at "+x,good:"Godt!",held:"Godt holdt!",notSimon:"Simon sagde det ikke!",slow:"For langsom!",
    notStop:"Simon sagde ikke stop!",stopped:x=>"Du stoppede med at "+x+"!",shouldStop:x=>"Du skulle stoppe med at "+x+"!",praise:["Godt!","Flot!","Bliv ved!"],
-   restart:" Vi starter forfra.",over:n=>"Spillet er slut. Du fik "+n+" point.",overShort:"Spillet er slut",points:n=>n+" point",
+   restart:" Vi starter forfra.",over:n=>"Spillet er slut. Du fik "+n+" point.",overShort:"Spillet er slut",got:n=>"Du fik "+n+" point.",points:n=>n+" point",
    also:"Du var i gang med: ",mistakesHead:"Det gik galt her:",live:(h,k,s)=>`Hop ${h} · Klap ${k} · Knæ ${s}`,noSee:"Kan ikke se dig",speech:"da-DK"},
  en:{simon:"Simon says: ",title:"Simon Says",intro:'Prop the phone up and step 2–3 meters back so your whole body is in view. Only do what you hear when it starts with <b style="color:var(--simon)">Simon says</b>.',
    normal:"Normal",normalSub:"One thing at a time",hard:"Hard",hardSub:"Keep going until Simon says stop",loading:"Loading…",
@@ -94,7 +94,7 @@ const T={
    ready:"Get ready. Step two meters back.",hardIntro:"Hard. Keep doing each move until Simon says stop. Step two meters back.",
    readyShort:"Get ready…",twice:" twice",stop:x=>"stop "+x,good:"Good!",held:"Nice hold!",notSimon:"Simon didn't say so!",slow:"Too slow!",
    notStop:"Simon didn't say stop!",stopped:x=>"You stopped "+x+"!",shouldStop:x=>"You should have stopped "+x+"!",praise:["Good!","Nice!","Keep going!"],
-   restart:" Starting over.",over:n=>"Game over. You got "+n+" points.",overShort:"Game over",points:n=>n+(n===1?" point":" points"),
+   restart:" Starting over.",over:n=>"Game over. You got "+n+" points.",overShort:"Game over",got:n=>"You got "+n+(n===1?" point.":" points."),points:n=>n+(n===1?" point":" points"),
    also:"You were doing: ",mistakesHead:"What went wrong:",live:(h,k,s)=>`Jumps ${h} · Claps ${k} · Squat ${s}`,noSee:"Can't see you",speech:"en-US"}
 };
 let lang="da";
@@ -111,7 +111,7 @@ function applyLang(){
   $("lda").setAttribute("aria-pressed",lang==="da");$("len").setAttribute("aria-pressed",lang==="en");
   upd();pickVoice();
 }
-for(const b of document.querySelectorAll(".lang button"))b.onclick=()=>{lang=b.dataset.l;try{localStorage.setItem("simonLang",lang);}catch{}$("mistakes").hidden=true;applyLang();};
+for(const b of document.querySelectorAll(".lang button"))b.onclick=()=>{lang=b.dataset.l;try{localStorage.setItem("simonLang",lang);}catch{}$("mistakes").hidden=true;applyLang();if(typeof loadClips==="function")loadClips();};
 
 /* ---------- Bevægelser ----------
    Landmarks: 0 næse, 11/12 skuldre, 15/16 håndled, 23/24 hofter, 25/26 knæ, 27/28 ankler */
@@ -197,12 +197,30 @@ function pickVoice(){try{
   da.sort((a,b)=>rank(b)-rank(a));daVoice=da[0]||null;
 }catch{}}
 try{pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}catch{}
-function speak(t){try{
-  if(speechSynthesis.speaking)speechSynthesis.cancel();
+/* Forindspillede Microsoft-stemmer (audio/clips.json). Findes en sætning ikke som lydfil,
+   bruger vi telefonens egen oplæser som reserve. */
+let ac=null;
+try{ac=new (window.AudioContext||window.webkitAudioContext)();}catch{}
+let CLIPS={},bufs={},playing=[],speakId=0;
+fetch("audio/clips.json").then(r=>r.json()).then(j=>{CLIPS=j;loadClips();}).catch(()=>{});
+function loadClips(){
+  const map=CLIPS[lang]||{};
+  for(const text in map){const f=map[text];if(bufs[f])continue;bufs[f]="loading";
+    fetch("audio/"+f).then(r=>r.arrayBuffer()).then(b=>new Promise((ok,no)=>ac.decodeAudioData(b,ok,no))).then(d=>{bufs[f]=d;}).catch(()=>{delete bufs[f];});}
+}
+function stopSpeech(){for(const s of playing){try{s.stop();}catch{}}playing=[];try{if(speechSynthesis.speaking)speechSynthesis.cancel();}catch{}}
+function synth(t){try{
   const u=new SpeechSynthesisUtterance(t);u.lang=L().speech;if(daVoice)u.voice=daVoice;u.rate=0.95;u.pitch=1.05;u.volume=1;
   speechSynthesis.speak(u);
 }catch{}}
-let ac=null;
+function speak(parts){
+  parts=[].concat(parts).map(s=>s.trim()).filter(Boolean);
+  stopSpeech();const id=++speakId;
+  const map=CLIPS[lang]||{},list=parts.map(p=>bufs[map[p]]);
+  if(!ac||list.some(b=>!b||b==="loading")){synth(parts.join(" "));return;}
+  let t=ac.currentTime+0.02;
+  for(const b of list){const s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(t);t+=b.duration+0.08;playing.push(s);}
+}
 function unlockAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume();beep(440,0.01,0.001);}catch{}}
 function beep(freq,dur,vol=0.4,type="sine",at=0){if(!ac)return;try{
   const o=ac.createOscillator(),g=ac.createGain(),t0=ac.currentTime+at;
@@ -350,11 +368,11 @@ function end(success,txt){
   upd();
   if(lives<=0){
     state="menu";
-    setTimeout(()=>speak(L().over(score)),400);
+    setTimeout(()=>speak([L().overShort+".",L().got(score)]),400);
     setTimeout(()=>{$("menu").hidden=false;$("mtitle").textContent=score+" point!";showMistakes();$("cmd").textContent=L().overShort;},1200);
     return;
   }
-  if(!success)setTimeout(()=>speak(txt+(mode==="hard"?L().restart:"")),350);
+  if(!success)setTimeout(()=>speak(mode==="hard"?[txt,L().restart]:txt),350);
   setTimeout(next,success?(mode==="hard"?600:1300):(mode==="hard"?3200:2300));
 }
 
