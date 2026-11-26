@@ -87,7 +87,7 @@ const T={
    readyShort:"Gør dig klar…",twice:" to gange",stop:x=>"stop med at "+x,good:"Godt!",held:"Godt holdt!",notSimon:"Simon sagde det ikke!",slow:"For langsom!",
    notStop:"Simon sagde ikke stop!",stopped:x=>"Du stoppede med at "+x+"!",shouldStop:x=>"Du skulle stoppe med at "+x+"!",praise:["Godt!","Flot!","Bliv ved!"],
    restart:" Vi starter forfra.",over:n=>"Spillet er slut. Du fik "+n+" point.",overShort:"Spillet er slut",points:n=>n+" point",
-   also:"Du var i gang med: ",mistakesHead:"Det gik galt her:",live:(h,k,s)=>`Hop ${h} · Klap ${k} · Squat ${s}`,noSee:"Kan ikke se dig",speech:"da-DK"},
+   also:"Du var i gang med: ",mistakesHead:"Det gik galt her:",live:(h,k,s)=>`Hop ${h} · Klap ${k} · Knæ ${s}`,noSee:"Kan ikke se dig",speech:"da-DK"},
  en:{simon:"Simon says: ",title:"Simon Says",intro:'Prop the phone up and step 2–3 meters back so your whole body is in view. Only do what you hear when it starts with <b style="color:var(--simon)">Simon says</b>.',
    normal:"Normal",normalSub:"One thing at a time",hard:"Hard",hardSub:"Keep going until Simon says stop",loading:"Loading…",
    modelErr:"Could not load the AI model. Check your internet connection.",camErr:"Camera access was not allowed. The page must be opened over https, and you need to allow the camera.",
@@ -137,7 +137,7 @@ const MOVES=[
      return Math.abs(lm[15].y-lm[11].y)<0.1&&Math.abs(lm[16].y-lm[12].y)<0.1&&Math.abs(lm[15].x-lm[16].x)>sw*2.5}},
   {id:"head",cat:"arm", t:"læg hænderne på hovedet", stop:"holde hænderne på hovedet", te:"put your hands on your head", se:"holding your hands on your head", ok:()=>vis(0,15,16)&&[15,16].every(w=>Math.hypot(lm[w].x-lm[0].x,lm[w].y-lm[0].y)<0.18&&lm[w].y<lm[11].y)},
   {id:"clap",cat:"arm", act:true, t:"klap i hænderne", stop:"klappe", te:"clap your hands", se:"clapping"},
-  {id:"squat",cat:"leg",t:"gå ned i squat", stop:"sidde i squat", te:"squat down", se:"squatting", ok:squatOk},
+  {id:"squat",cat:"leg",t:"gå ned i knæ", stop:"være nede i knæ", te:"squat down", se:"squatting", ok:squatOk},
   {id:"one", cat:"stance", t:"stå på ét ben", stop:"stå på ét ben", te:"stand on one leg", se:"standing on one leg", ok:()=>vis(27,28)&&Math.abs(lm[27].y-lm[28].y)>0.07},
   {id:"hop", cat:"hop", act:true, t:"hop", stop:"hoppe", te:"jump", se:"jumping"},
 ];
